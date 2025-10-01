@@ -1,0 +1,14 @@
+[project]
+name = "simple-gtf"
+version = "0.1.0"
+description = "Simple reader for GTF files, particularly from Ensembl, using Polars"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["polars>1"]
+
+[dependency-groups]
+dev = ["pytest>=8.4.2", "pytest-resource-path>=1.4.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
