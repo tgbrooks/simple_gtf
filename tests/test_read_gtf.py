@@ -1,4 +1,5 @@
 import polars as pl
+import polars.testing
 import simple_gtf
 
 
@@ -12,4 +13,4 @@ def test_read_gtf(resource_path_root):
     assert set(gtf.columns) == set(expected.columns)
 
     expected = expected.select(gtf.columns)
-    assert gtf.sort("feature_id").equals(expected)
+    polars.testing.assert_frame_equal(gtf, expected)

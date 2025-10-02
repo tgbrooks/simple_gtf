@@ -117,14 +117,17 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         "score",
         "strand",
         "frame",
-    ).collect()
+    )
 
     all_attributes = attributes["attr_name"].unique()
 
     gtf = (
         features.lazy()
         .join(attributes.lazy(), "feature_id", maintain_order="left")
-        .group_by(["feature_id"] + [col for col in gtf_columns if col != "attribute"])
+        .group_by(
+            ["feature_id"] + [col for col in gtf_columns if col != "attribute"],
+            maintain_order=True,
+        )
         .agg(
             *[
                 pl.col("attr_val")
