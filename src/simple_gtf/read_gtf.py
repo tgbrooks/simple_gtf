@@ -47,50 +47,66 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         gtf.select("transcript_id", "gene_id").explode("transcript_id").explode("gene_id").drop_nulls()
     """
 
-    gtf_contents = pl.read_csv(
+    gtf_columns = [
+        "seqname",
+        "source",
+        "feature",
+        "start",
+        "end",
+        "score",
+        "strand",
+        "frame",
+        "attribute",
+    ]
+    gtf_contents = pl.scan_csv(
         gtf_path,
         separator="\t",
         has_header=False,
-        new_columns=[
-            "seqname",
-            "source",
-            "feature",
-            "start",
-            "end",
-            "score",
-            "strand",
-            "frame",
-            "attribute",
-        ],
+        new_columns=gtf_columns,
         comment_prefix="#",
         schema_overrides={
-            "seqname": pl.Utf8,
-            "source": pl.Utf8,
-            "feature": pl.Utf8,
+            "seqname": pl.Categorical,
+            "source": pl.Categorical,
+            "feature": pl.Categorical,
             "start": pl.Int64,
             "end": pl.Int64,
             "score": pl.Float64,
-            "strand": pl.Utf8,
-            "frame": pl.Int64,
+            "strand": pl.Categorical,
+            "frame": pl.Categorical,
             "attribute": pl.Utf8,
         },
         null_values=".",
     ).with_row_index(name="feature_id")
 
     attributes = (
-        gtf_contents.lazy()
+        gtf_contents
+        # .lazy()
         .select("feature_id", "attribute")
-        .with_columns(pl.col("attribute").str.strip_suffix(";").str.split("; "))
-        .explode("attribute")
+        # .with_columns(pl.col("attribute").str.strip_suffix(";").str.split("; "))
+        # .explode("attribute")
+        # .with_columns(
+        #    pl.col("attribute").str.extract_groups(
+        #        r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
+        #    )
+        # )
+        # TODO: not sure what implementation to use
+        #       minimal performance difference but haven't investigated memory use
         .with_columns(
-            pl.col("attribute").str.extract_groups(
-                r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
+            pl.col("attribute")
+            .str.strip_suffix(";")
+            .str.split("; ")
+            .list.eval(
+                pl.element().str.extract_groups(
+                    r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
+                )
             )
         )
+        .explode("attribute")
         .unnest("attribute")
         .drop_nulls()
         .collect()
     )
+
     features = gtf_contents.select(
         "feature_id",
         "seqname",
@@ -101,22 +117,23 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         "score",
         "strand",
         "frame",
-    )
+    ).collect()
 
     all_attributes = attributes["attr_name"].unique()
+
     gtf = (
         features.lazy()
-        .join(attributes.lazy(), "feature_id")
-        .group_by(features.columns)
+        .join(attributes.lazy(), "feature_id", maintain_order="left")
+        .group_by(["feature_id"] + [col for col in gtf_columns if col != "attribute"])
         .agg(
             *[
                 pl.col("attr_val")
                 .filter(pl.col("attr_name") == attr_name)
                 .alias(attr_name)
                 for attr_name in all_attributes
+                if attr_name is not None
             ]
         )
-        .sort("feature_id")
         .collect()
     )
     return gtf
