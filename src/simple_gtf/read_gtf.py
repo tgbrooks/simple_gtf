@@ -54,7 +54,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         exon_version
         protein_version
 
-    Attribute columns have dtype of lists of strings. This is true even for columns like gene_id that typically have only one entry.
+    Attribute columns have dtype of lists. This is true even for columns like gene_id that typically have only one entry.
     To make use of these, the explode() command is useful. For example, to get the mapping of transcript ids to gene ids:
 
         gtf = read_gtf("example.gtf.gz")
@@ -96,6 +96,9 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     N = 100_000
     temp = []
     for i in range(0, gtf_contents.height, N):
+        # Parse the attribute columns into separate name:value pairs
+        # this column is a list of values like:
+        # name "value"; name2 "value2";
         temp.append(
             gtf_contents[i : i + N]
             .lazy()
@@ -131,6 +134,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         "frame",
     )
 
+    # List all attribute names present
     all_attributes = (
         attributes.lazy()
         .select(
@@ -143,6 +147,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         .collect()
     ).drop_nulls()["attr_name"]
 
+    # Convert attributes from list-of-(name:val) to one column per name (each of dtype list of values)
     attr_columns = []
     for attr_name in all_attributes:
         this_col = attributes.select(
@@ -156,7 +161,9 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
             .list.drop_nulls()
             .alias(attr_name)
         )
+
         if attr_name in attribute_types:
+            # Some columns have an expected type and so we try to cast those
             try:
                 this_col = this_col.cast(
                     pl.List(attribute_types.get(attr_name, pl.String))
@@ -166,6 +173,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
                 pass
         attr_columns.append(this_col)
 
+    # Aggregate all feature data and attributes together
     gtf = pl.concat(
         [
             features,
