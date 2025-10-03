@@ -58,7 +58,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     To make use of these, the explode() command is useful. For example, to get the mapping of transcript ids to gene ids:
 
         gtf = read_gtf("example.gtf.gz")
-        gtf.select("transcript_id", "gene_id").explode("transcript_id").explode("gene_id").drop_nulls()
+        gtf.select("transcript_id", "gene_id").explode("transcript_id").explode("gene_id").drop_nulls().unique()
     """
 
     gtf_columns = [
