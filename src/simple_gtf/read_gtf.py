@@ -4,21 +4,15 @@ import polars as pl
 attribute_types = {
     "exon_number": pl.Int32,
     "gene_version": pl.Int32,
-    "transcript_id": pl.String,
     "transcript_support_level": pl.Categorical,
-    "protein_id": pl.String,
-    "exon_id": pl.String,
     "transcript_biotype": pl.Categorical,
     "gene_source": pl.Categorical,
-    "ccds_id": pl.String,
     "tag": pl.Categorical,
     "exon_version": pl.Int32,
     "transcript_version": pl.Int32,
-    "gene_name": pl.String,
     "gene_biotype": pl.Categorical,
     "transcript_source": pl.Categorical,
     "protein_version": pl.Int32,
-    "gene_id": pl.String,
 }
 
 
@@ -78,7 +72,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         "frame",
         "attribute",
     ]
-    gtf_contents = pl.scan_csv(
+    gtf_contents = pl.read_csv(
         gtf_path,
         separator="\t",
         has_header=False,
@@ -99,8 +93,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     )
 
     attributes = (
-        gtf_contents
-        # .lazy()
+        gtf_contents.lazy()
         .select(
             pl.col("attribute")
             .str.strip_suffix(";")
@@ -142,8 +135,9 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         .collect()
     ).drop_nulls()["attr_name"]
 
-    wide_attributes = attributes.select(
-        *[
+    attr_columns = []
+    for attr_name in all_attributes:
+        this_col = attributes.select(
             pl.col("attribute")
             # .list.filter(pl.element().struct.field("attr_name") == attr_name) # weirdly slow, so we use the map-dropnulls approach
             .list.eval(
@@ -151,19 +145,23 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
                 .then(pl.element().struct.field("attr_val"))
                 .otherwise(None)
             )
-            .cast(
-                pl.List(attribute_types.get(attr_name, pl.String))
-            )  # Cast to the expected type
             .list.drop_nulls()
             .alias(attr_name)
-            for attr_name in all_attributes
-        ]
-    )
+        )
+        if attr_name in attribute_types:
+            try:
+                this_col = this_col.cast(
+                    pl.List(attribute_types.get(attr_name, pl.String))
+                )  # Cast to the expected type
+            except pl.exceptions.InvalidOperationError:
+                # Couldn't convert a column as expected, just leave it as default (string)
+                pass
+        attr_columns.append(this_col)
 
     gtf = pl.concat(
         [
-            features.collect(),
-            wide_attributes,
+            features,
+            *attr_columns,
         ],
         how="horizontal",
     )
