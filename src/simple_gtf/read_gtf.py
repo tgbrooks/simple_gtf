@@ -1,6 +1,26 @@
 import pathlib
 import polars as pl
 
+attribute_types = {
+    "exon_number": pl.Int32,
+    "gene_version": pl.Int32,
+    "transcript_id": pl.String,
+    "transcript_support_level": pl.Categorical,
+    "protein_id": pl.String,
+    "exon_id": pl.String,
+    "transcript_biotype": pl.Categorical,
+    "gene_source": pl.Categorical,
+    "ccds_id": pl.String,
+    "tag": pl.Categorical,
+    "exon_version": pl.Int32,
+    "transcript_version": pl.Int32,
+    "gene_name": pl.String,
+    "gene_biotype": pl.Categorical,
+    "transcript_source": pl.Categorical,
+    "protein_version": pl.Int32,
+    "gene_id": pl.String,
+}
+
 
 def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     """
@@ -81,8 +101,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     attributes = (
         gtf_contents
         # .lazy()
-        .select("attribute")
-        .with_columns(
+        .select(
             pl.col("attribute")
             .str.strip_suffix(";")
             .str.split("; ")
@@ -90,6 +109,11 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
                 pl.element().str.extract_groups(
                     r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
                 )
+            )
+        )
+        .select(
+            pl.col("attribute").cast(
+                pl.List(pl.Struct({"attr_name": pl.Categorical, "attr_val": pl.String}))
             )
         )
         .collect()
@@ -121,11 +145,15 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     wide_attributes = attributes.select(
         *[
             pl.col("attribute")
+            # .list.filter(pl.element().struct.field("attr_name") == attr_name) # weirdly slow, so we use the map-dropnulls approach
             .list.eval(
                 pl.when(pl.element().struct.field("attr_name") == attr_name)
                 .then(pl.element().struct.field("attr_val"))
                 .otherwise(None)
             )
+            .cast(
+                pl.List(attribute_types.get(attr_name, pl.String))
+            )  # Cast to the expected type
             .list.drop_nulls()
             .alias(attr_name)
             for attr_name in all_attributes
