@@ -92,25 +92,33 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         null_values=".",
     )
 
-    attributes = (
-        gtf_contents.lazy()
-        .select(
-            pl.col("attribute")
-            .str.strip_suffix(";")
-            .str.split("; ")
-            .list.eval(
-                pl.element().str.extract_groups(
-                    r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
+    # Process in batches for reduced memory
+    N = 100_000
+    temp = []
+    for i in range(0, gtf_contents.height, N):
+        temp.append(
+            gtf_contents[i : i + N]
+            .lazy()
+            .select(
+                pl.col("attribute")
+                .str.strip_suffix(";")
+                .str.split("; ")
+                .list.eval(
+                    pl.element().str.extract_groups(
+                        r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
+                    )
                 )
             )
-        )
-        .select(
-            pl.col("attribute").cast(
-                pl.List(pl.Struct({"attr_name": pl.Categorical, "attr_val": pl.String}))
+            .select(
+                pl.col("attribute").cast(
+                    pl.List(
+                        pl.Struct({"attr_name": pl.Categorical, "attr_val": pl.String})
+                    )
+                )
             )
+            .collect()
         )
-        .collect()
-    )
+    attributes = pl.concat(temp)
 
     features = gtf_contents.select(
         "seqname",
