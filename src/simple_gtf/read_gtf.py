@@ -76,21 +76,12 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
             "attribute": pl.Utf8,
         },
         null_values=".",
-    ).with_row_index(name="feature_id")
+    )
 
     attributes = (
         gtf_contents
         # .lazy()
-        .select("feature_id", "attribute")
-        # .with_columns(pl.col("attribute").str.strip_suffix(";").str.split("; "))
-        # .explode("attribute")
-        # .with_columns(
-        #    pl.col("attribute").str.extract_groups(
-        #        r"(?<attr_name>\w+) \"(?<attr_val>\w+)\""
-        #    )
-        # )
-        # TODO: not sure what implementation to use
-        #       minimal performance difference but haven't investigated memory use
+        .select("attribute")
         .with_columns(
             pl.col("attribute")
             .str.strip_suffix(";")
@@ -101,14 +92,10 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
                 )
             )
         )
-        .explode("attribute")
-        .unnest("attribute")
-        .drop_nulls()
         .collect()
     )
 
     features = gtf_contents.select(
-        "feature_id",
         "seqname",
         "source",
         "feature",
@@ -119,24 +106,37 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         "frame",
     )
 
-    all_attributes = attributes["attr_name"].unique()
-
-    gtf = (
-        features.lazy()
-        .join(attributes.lazy(), "feature_id", maintain_order="left")
-        .group_by(
-            ["feature_id"] + [col for col in gtf_columns if col != "attribute"],
-            maintain_order=True,
+    all_attributes = (
+        attributes.lazy()
+        .select(
+            pl.col("attribute")
+            .list.eval(pl.element().struct.field("attr_name"))
+            .alias("attr_name"),
         )
-        .agg(
-            *[
-                pl.col("attr_val")
-                .filter(pl.col("attr_name") == attr_name)
-                .alias(attr_name)
-                for attr_name in all_attributes
-                if attr_name is not None
-            ]
-        )
+        .explode("attr_name")
+        .unique()
         .collect()
+    ).drop_nulls()["attr_name"]
+
+    wide_attributes = attributes.select(
+        *[
+            pl.col("attribute")
+            .list.eval(
+                pl.when(pl.element().struct.field("attr_name") == attr_name)
+                .then(pl.element().struct.field("attr_val"))
+                .otherwise(None)
+            )
+            .list.drop_nulls()
+            .alias(attr_name)
+            for attr_name in all_attributes
+        ]
+    )
+
+    gtf = pl.concat(
+        [
+            features.collect(),
+            wide_attributes,
+        ],
+        how="horizontal",
     )
     return gtf
