@@ -16,9 +16,15 @@ attribute_types = {
 }
 
 
-def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
+def read_gtf(
+    gtf_path: str | pathlib.Path,
+    features: list[str] | None = None,
+) -> pl.DataFrame:
     """
     Load a polars dataframe from a gtf or gtf.gz file pathlib
+
+    If features is provided, extract only those features and discard the rest for lower memory use.
+    For example, features = ["gene", "transcript"].
 
     The returned dataframe has the following columns:
         seqname - name of the chromosome or scaffold; chromosome names can be given with or without the 'chr' prefix.
@@ -57,7 +63,7 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
     Attribute columns have dtype of lists. This is true even for columns like gene_id that typically have only one entry.
     To make use of these, the explode() command is useful. For example, to get the mapping of transcript ids to gene ids:
 
-        gtf = read_gtf("example.gtf.gz")
+        gtf = read_gtf("example.gtf.gz", features=["gene", "transcript"])
         gtf.select("transcript_id", "gene_id").explode("transcript_id").explode("gene_id").drop_nulls().unique()
     """
 
@@ -91,6 +97,9 @@ def read_gtf(gtf_path: str | pathlib.Path) -> pl.DataFrame:
         },
         null_values=".",
     )
+
+    if features:
+        gtf_contents = gtf_contents.filter(pl.col("feature").is_in(features))
 
     # Process in batches for reduced memory
     N = 100_000

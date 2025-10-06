@@ -24,6 +24,9 @@ gtf = simple_gtf.read_gtf("example.gtf.gz")
 
 # For example, get transcript-gene pairs as a polars dataframe
 gtf.select("transcript_id", "gene_id").explode("transcript_id").explode("gene_id").drop_nulls().unique()
+
+# Load in only specific feature types for faster run-time and lower memory
+gtf = simple_gtf.read_gtf("example.gtf.gz", features=["gene", "exon"])
 ```
 
 # Alternatives
